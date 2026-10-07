@@ -1486,12 +1486,17 @@ async function loadPermissionMeta() {
 async function api(path, method="GET", body=null) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = "Bearer " + token;
-  const res = await fetch(API + path, { method, headers,
-    body: body ? JSON.stringify(body) : null
-  });
-  const json = await res.json();
-  if (!res.ok && res.status === 401 && !_loggingOut) { doLogout(); }
-  return json;
+  const controller = method === "GET" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 30000) : null;
+  try {
+    const res = await fetch(API + path, { method, headers, cache: "no-store",
+      signal: controller ? controller.signal : undefined,
+      body: body ? JSON.stringify(body) : null
+    });
+    const json = await res.json();
+    if (!res.ok && res.status === 401 && !_loggingOut) { doLogout(); }
+    return json;
+  } finally { if (timeout) clearTimeout(timeout); }
 }
 
 /* ============================================================
@@ -1511,6 +1516,7 @@ let _loggingOut = false;
 function doLogout() {
   if (_loggingOut) return;          // 防止 401 → logout → 401 递归
   _loggingOut = true;
+  stopLiveRefresh();
   if (token) api("/auth/logout", "POST").catch(()=>{});
   token = ""; me = null;
   localStorage.removeItem("tt_token");
@@ -1542,7 +1548,64 @@ function showApp() {
   startUpdateWatch();
   loadPendingConfirmCount();
   loadLedgerTemplates();
+  startLiveRefresh();
 }
+
+/* 共享数据库可能由其他客户端修改，定时读取当前页面，不重载整页。 */
+let _liveTimer = null;
+let _liveBusy = false;
+const LIVE_REFRESH_MS = 3000;
+
+function stopLiveRefresh() {
+  clearTimeout(_liveTimer);
+  _liveTimer = null;
+}
+
+function startLiveRefresh() {
+  stopLiveRefresh();
+  if (token && me && !_loggingOut) {
+    _liveTimer = setTimeout(refreshLiveData, LIVE_REFRESH_MS);
+  }
+}
+
+async function refreshLiveData() {
+  if (_liveBusy) return;
+  stopLiveRefresh();
+  if (!token || !me || _loggingOut) return;
+  const editing = document.querySelector(
+    ".modal-overlay.show:not(#modal-detail), #filter-panel.show"
+  ) || ["modal-ledger-template", "modal-ledger-import"].some(id => {
+    const el = document.getElementById(id);
+    return el && el.style.display === "flex";
+  });
+  if (document.hidden || editing || _dragId) { startLiveRefresh(); return; }
+  _liveBusy = true;
+  try {
+    if (currentTab === "tasks") await loadTasks(true);
+    if (currentTab === "dashboard") await loadDashboard(true);
+    if (currentTab === "users") await loadUsers(true);
+    if (currentTab === "orgs") await loadOrgs(true);
+    if (currentTab === "roles") await loadRoles(true);
+    if (currentTab === "ledger") {
+      await loadLedgerTemplates();
+      if (_currentLedgerTpl) await loadLedgerSubmissions(_currentLedgerTpl.id);
+    }
+    const detail = document.getElementById("modal-detail");
+    if (detail.classList.contains("show")) {
+      await openDetail(document.getElementById("detail-id").value, true);
+    }
+    await loadPendingConfirmCount();
+    const confirmations = document.getElementById("conf-modal");
+    if (confirmations && confirmations.style.display === "flex") await openConfirmations(true);
+  } catch (e) { console.warn("自动同步失败，将在下一轮重试", e); }
+  finally { _liveBusy = false; startLiveRefresh(); }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshLiveData();
+});
+window.addEventListener("focus", refreshLiveData);
+window.addEventListener("online", refreshLiveData);
 
 /* ============================================================
    页面加载时校验会话：有效则进主界面，否则跳登录页
@@ -2292,8 +2355,16 @@ async function doSaveTask() {
 /* ============================================================
    任务详情 + 反馈 + 关联
    ============================================================ */
-async function openDetail(id) {
-  const t = tasks.find(x => x.id == id);
+async function openDetail(id, refreshing=false) {
+  const r = refreshing ? await api("/tasks/" + id) : null;
+  if (refreshing && !r.ok) {
+    if (["任务不存在", "无权查看该任务"].includes(r.error)
+        && document.getElementById("detail-id").value == id) closeDetailModal();
+    return;
+  }
+  if (refreshing && (!document.getElementById("modal-detail").classList.contains("show")
+      || document.getElementById("detail-id").value != id)) return;
+  const t = refreshing ? r.task : tasks.find(x => x.id == id);
   if (!t) return;
 
   function el(id) { return document.getElementById(id); }
@@ -2337,16 +2408,16 @@ async function openDetail(id) {
   html("detail-priority", `<span class="priority-badge priority-${t.priority||'M'}">${priLabel(t.priority)}</span>`);
   html("detail-status",   `<span class="task-status-badge badge-${t.status}">${statusLabel(t.status)}</span>`);
 
-  el("comment-input").value = "";
+  if (!refreshing) el("comment-input").value = "";
 
   // 加载子任务进度
-  await loadSubtaskProgress(id, t);
+  if (!refreshing) await loadSubtaskProgress(id, t);
   // 加载任务关联
   await loadTaskRelations(id);
   // 加载反馈（含最新预览）
   await loadComments(id);
 
-  document.getElementById("modal-detail").classList.add("show");
+  if (!refreshing) document.getElementById("modal-detail").classList.add("show");
 }
 
 async function loadSubtaskProgress(taskId, task) {
@@ -2354,6 +2425,7 @@ async function loadSubtaskProgress(taskId, task) {
   const progressDiv = document.getElementById("detail-subtask-progress");
   try {
     const r = await api("/tasks/" + taskId + "/progress");
+    if (document.getElementById("detail-id").value != taskId) return;
     if (r.ok && r.subtasks && r.subtasks.length > 0) {
       section.style.display = "block";
       const done = r.subtasks.filter(s => s.status === "DONE" || s.status === "CLOSED").length;
@@ -2384,6 +2456,7 @@ async function loadTaskRelations(taskId) {
   const list = document.getElementById("detail-rel-list");
   try {
     const r = await api("/tasks/" + taskId + "/relations");
+    if (document.getElementById("detail-id").value != taskId) return;
     if (!r.relations || !r.relations.length) {
       list.innerHTML = '<div style="font-size:13px;color:var(--text-2);">暂无关联任务</div>';
       return;
@@ -2412,6 +2485,7 @@ function closeDetailModal() {
 async function loadComments(taskId) {
   try {
     const r = await api("/tasks/" + taskId + "/comments");
+    if (document.getElementById("detail-id").value != taskId) return;
     const list  = document.getElementById("comment-list");
     const count = document.getElementById("feedback-count");
     const preview   = document.getElementById("detail-latest-comment");
@@ -2531,12 +2605,12 @@ async function doDeleteRel(taskId, relId) {
 /* ============================================================
    岗位权限管理
    ============================================================ */
-async function loadRoles() {
+async function loadRoles(silent=false) {
   try {
     const r = await api("/roles");
     roles = r.roles || [];
     renderRoles();
-  } catch(e) { toast("加载岗位失败："+e.message, "error"); }
+  } catch(e) { if (!silent) toast("加载岗位失败："+e.message, "error"); }
 }
 
 function renderRoles() {
@@ -2676,14 +2750,15 @@ async function doDeleteRole(id) {
 /* ============================================================
    人员管理
    ============================================================ */
-async function loadUsers() {
+async function loadUsers(silent=false) {
   try {
     const [ur, rr] = await Promise.all([api("/users"), api("/roles")]);
+    if (silent && document.getElementById("modal-user").classList.contains("show")) return;
     users = ur.users || [];
     roles = rr.roles || [];
     renderUsers();
     renderUserRoleOptions();
-  } catch(e) { toast("加载人员失败："+e.message, "error"); }
+  } catch(e) { if (!silent) toast("加载人员失败："+e.message, "error"); }
 }
 
 function renderUserRoleOptions() {
@@ -2799,12 +2874,12 @@ async function doSaveUser() {
 /* ============================================================
    组织架构
    ============================================================ */
-async function loadOrgs() {
+async function loadOrgs(silent=false) {
   try {
     const r = await api("/orgs");
     orgs = r.orgs || [];
     renderOrgs();
-  } catch(e) { toast("加载组织失败："+e.message, "error"); }
+  } catch(e) { if (!silent) toast("加载组织失败："+e.message, "error"); }
 }
 
 function renderOrgs() {
@@ -3330,17 +3405,24 @@ function buildTaskQuery() {
   return qs;
 }
 
-async function loadTasks() {
+let _taskLoadSequence = 0;
+async function loadTasks(silent=false) {
+  const sequence = ++_taskLoadSequence;
+  const query = buildTaskQuery().toString();
   try {
-    const qs = buildTaskQuery();
+    const qs = query;
     const r = await api("/tasks?" + qs.toString());
     if (!r.ok) throw new Error(r.error);
-    tasks = r.tasks || [];
-    renderTasks();
-    loadSummary();
-    updateStats();
-    loadDeptOptions();
-  } catch (e) { toast("加载失败：" + e.message, "error"); }
+    if (sequence !== _taskLoadSequence || query !== buildTaskQuery().toString()) return;
+    const nextTasks = r.tasks || [];
+    if (!silent || JSON.stringify(tasks) !== JSON.stringify(nextTasks)) {
+      tasks = nextTasks;
+      renderTasks();
+      updateStats();
+    }
+    await loadSummary();
+    if (!silent) await loadDeptOptions();
+  } catch (e) { if (!silent) toast("加载失败：" + e.message, "error"); }
 }
 
 /* ---------- Excel 导入导出 ---------- */
@@ -3431,7 +3513,7 @@ document.addEventListener("click", e => {
 
 function pct(a, b) { return b ? Math.round(a * 1000 / b) / 10 : 0; }
 
-async function loadDashboard() {
+async function loadDashboard(silent=false) {
   try {
     const r = await api("/tasks/stats?range=" + dashRange);
     if (!r.ok) throw new Error(r.error);
@@ -3513,7 +3595,7 @@ async function loadDashboard() {
 
     const badge = document.getElementById("side-badge-overdue");
     if (badge) badge.textContent = s.overdue || 0;
-  } catch (e) { toast("大屏数据加载失败：" + e.message, "error"); }
+  } catch (e) { if (!silent) toast("大屏数据加载失败：" + e.message, "error"); }
 }
 
 /* ---------- 组织架构树（v3.2） ---------- */
@@ -3754,9 +3836,10 @@ async function loadPendingConfirmCount() {
   } catch (e) { /* ignore */ }
 }
 
-async function openConfirmations() {
+async function openConfirmations(refreshing=false) {
   const r = await api("/confirmations/pending");
-  if (!r.ok) { toast("加载失败：" + (r.error||""), "error"); return; }
+  if (!r.ok) { if (!refreshing) toast("加载失败：" + (r.error||""), "error"); return; }
+  if (refreshing && document.getElementById("conf-modal").style.display !== "flex") return;
   _confirmList = r.confirmations || [];
   const body = document.getElementById("conf-body") || document.body;
   const html = _confirmList.length ? _confirmList.map(c => `
@@ -3815,6 +3898,13 @@ async function loadLedgerTemplates() {
   const r = await api("/ledger/templates");
   if (!r.ok) return;
   _ledgerTemplates = r.templates || [];
+  if (_currentLedgerTpl) {
+    const current = _ledgerTemplates.find(t => t.id === _currentLedgerTpl.id);
+    if (current) {
+      _currentLedgerTpl = current;
+      document.getElementById("ledger-detail-title").textContent = current.name;
+    } else closeLedgerDetail();
+  }
   renderLedgerTemplates();
   document.getElementById("tab-ledger").style.display = "";
   document.getElementById("side-ledger").style.display = "";
