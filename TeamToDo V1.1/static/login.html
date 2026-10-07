@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 - TeamToDo管理平台</title>
+<style>
+:root {
+  --bg:        #f0f2f5;
+  --surface:   #ffffff;
+  --primary:   #2563eb;
+  --primary-h: #1d4ed8;
+  --danger:    #ef4444;
+  --text:      #1f2937;
+  --text-2:    #6b7280;
+  --border:    #e5e7eb;
+  --radius:    12px;
+  --shadow-lg: 0 4px 20px rgba(0,0,0,.12);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  height:100%;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text);
+}
+
+.login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%);
+  padding: 20px;
+}
+.login-box {
+  background: var(--surface); border-radius: var(--radius); padding: 48px 40px;
+  width: 420px; max-width: 95vw; box-shadow: var(--shadow-lg); text-align: center;
+}
+.login-box h1 { font-size: 28px; font-weight: 800; color: var(--primary); margin-bottom: 6px; }
+.login-box .sub { color: var(--text-2); font-size: 14px; margin-bottom: 32px; }
+.login-box input {
+  width: 100%; padding: 12px 16px; border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 15px; margin-bottom: 14px; outline: none; transition: border-color .2s;
+}
+.login-box input:focus { border-color: var(--primary); }
+.login-box button {
+  width: 100%; padding: 13px; background: var(--primary); color: #fff;
+  border: none; border-radius: 8px; font-size: 16px; font-weight: 600;
+  cursor: pointer; transition: background .2s; margin-top: 4px;
+}
+.login-box button:hover { background: var(--primary-h); }
+.login-box button:disabled { background: #93b4f5; cursor: not-allowed; }
+.login-box .hint { font-size: 12px; color: var(--text-2); margin-top: 16px; }
+.login-box .error { color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none; }
+.login-box .error.show { display: block; }
+
+/* 跳转提示遮罩 */
+.redirect-mask {
+  position: fixed; inset: 0; background: rgba(255,255,255,.9);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 999;
+}
+.spinner {
+  width: 34px; height: 34px; border: 3px solid rgba(37,99,235,.2);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.redirect-mask p { font-size: 14px; color: var(--text-2); }
+.version-tag { font-size: 11px; color: var(--text-2); margin-top: 20px; opacity: .7; }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-box">
+    <h1 id="app-title">TeamToDo管理平台</h1>
+    <p class="sub" id="app-subtitle">内部任务协同管理平台</p>
+    <div class="error" id="login-error"></div>
+    <input type="text" id="inp-username" placeholder="用户名 / 工号" autocomplete="username">
+    <input type="password" id="inp-password" placeholder="密码" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" id="btn-login">登 录</button>
+    <p class="hint">默认管理员：admin / admin123</p>
+    <p class="version-tag" id="ver-tag"></p>
+  </div>
+</div>
+
+<div class="redirect-mask" id="mask" style="display:none;">
+  <div class="spinner"></div>
+  <p id="mask-text">正在进入系统…</p>
+</div>
+
+<script>
+var API = "/api";
+
+/* ---------- 工具 ---------- */
+function showErr(msg) {
+  var el = document.getElementById("login-error");
+  el.textContent = msg;
+  el.className = "error show";
+}
+function clearErr() {
+  document.getElementById("login-error").className = "error";
+}
+
+/* 解析 ?redirect= 参数，登录后跳回去（防开放重定向：只接受站内路径） */
+function safeRedirect() {
+  var raw = new URLSearchParams(location.search).get("redirect") || "";
+  if (raw && raw.charAt(0) === "/" && raw.indexOf("//") !== 0) return raw;
+  return "/index.html";
+}
+
+/* ---------- 已登录用户直接进系统 ---------- */
+async function checkAlreadyLogin() {
+  var token = localStorage.getItem("tt_token");
+  if (!token) return;
+  showMask("正在进入系统…");
+  try {
+    var r = await fetch(API + "/users/me", {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    if (r.status === 401) {
+      localStorage.removeItem("tt_token");
+      localStorage.removeItem("tt_me");
+      hideMask();
+      return;
+    }
+    var j = await r.json();
+    if (j && j.ok && j.user) {
+      localStorage.setItem("tt_me", JSON.stringify(j.user));
+      location.replace(safeRedirect());
+      return;
+    }
+  } catch (e) { /* 网络异常：留在登录页 */ }
+  hideMask();
+}
+
+/* ---------- 登录 ---------- */
+async function doLogin() {
+  var u = document.getElementById("inp-username").value.trim();
+  var p = document.getElementById("inp-password").value;
+  if (!u) { showErr("请输入用户名"); return; }
+  if (!p) { showErr("请输入密码"); return; }
+
+  clearErr();
+  var btn = document.getElementById("btn-login");
+  btn.disabled = true;
+  btn.textContent = "登录中…";
+
+  try {
+    var resp = await fetch(API + "/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    var j = await resp.json();
+    if (!resp.ok || !j.ok) {
+      showErr((j && j.error) || "登录失败，请检查用户名和密码");
+      btn.disabled = false;
+      btn.textContent = "登 录";
+      return;
+    }
+    // 保存凭证（与主页面同源共享 localStorage）
+    localStorage.setItem("tt_token", j.token);
+    localStorage.setItem("tt_me", JSON.stringify(j.user));
+    showMask("登录成功，正在进入系统…");
+    setTimeout(function () { location.replace(safeRedirect()); }, 400);
+  } catch (e) {
+    showErr("无法连接服务，请确认服务已启动");
+    btn.disabled = false;
+    btn.textContent = "登 录";
+  }
+}
+
+function showMask(t) {
+  document.getElementById("mask-text").textContent = t;
+  document.getElementById("mask").style.display = "flex";
+}
+function hideMask() {
+  document.getElementById("mask").style.display = "none";
+}
+
+/* ---------- 载入站点名称 ---------- */
+(async function loadConfig() {
+  try {
+    var r = await fetch(API + "/config");
+    var j = await r.json();
+    if (j && j.ok && j.config) {
+      if (j.config.title) {
+        document.getElementById("app-title").textContent = j.config.title;
+        document.title = "登录 - " + j.config.title;
+      }
+      if (j.config.subtitle) {
+        document.getElementById("app-subtitle").textContent = j.config.subtitle;
+      }
+      if (j.config.version) {
+        document.getElementById("ver-tag").textContent = "v" + j.config.version;
+      }
+    }
+  } catch (e) { /* 保持默认名称 */ }
+})();
+
+checkAlreadyLogin();
+</script>
+</body>
+</html>

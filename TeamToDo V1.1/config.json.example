@@ -1,0 +1,47 @@
+{
+  "_说明": [
+    "把本文件改名为 config.json 放在 TeamToDo.exe 同目录即可生效。",
+    "路径统一使用正斜杠 /，避免 JSON 转义出错（程序会自动转换成 Windows 路径）。",
+    "平台迁移时通常只需要修改 database.folder 这一项。"
+  ],
+
+  "app": {
+    "title": "TeamToDo管理平台",
+    "subtitle": "内部任务协同管理平台"
+  },
+
+  "server": {
+    "_说明": "host 默认 127.0.0.1，只监听本机回环地址，不对外提供任何服务",
+    "host": "127.0.0.1",
+    "port": 8765,
+    "open_browser": false,
+    "lan_access": false
+  },
+
+  "database": {
+    "_说明": "folder + file 组合成完整路径；迁移时只改 folder；也可用 path 直接写完整路径（优先级更高）",
+    "folder": "",
+    "file": "tasks.db",
+    "path": "",
+    "mode": "auto",
+    "timeout": 20,
+    "journal_mode": "",
+    "backup_dir": "",
+    "keep_backups": 10,
+    "allow_local_fallback": false
+  },
+
+  "security": {
+    "allow_register": true
+  },
+
+  "update": {
+    "_说明": "自动更新：folder 填共享目录（放 manifest.json + 待更新文件），enabled 改 true 生效",
+    "enabled": false,
+    "folder": "",
+    "manifest": "manifest.json",
+    "auto_check": true,
+    "check_interval": 300,
+    "auto_install": false
+  }
+}

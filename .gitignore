@@ -1,0 +1,11 @@
+数据存放/
+**/config.json
+**/logs/
+**/port.txt
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/__pycache__/
+**/*.pyc
+**/*.lnk
+.verification/
