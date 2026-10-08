@@ -54,4 +54,4 @@
 
 仅替换每个客户端的 `static/index.html` 并刷新浏览器一次即可加载新脚本。不要替换 `config.json`、数据库或 `db/schema.sql`，也不需要重新建库或运行数据库迁移。要回退时，从老版本标签取出同一个 HTML 文件并替换；数据库无需回退。
 
-老版本尚需推送到用户指定的 GitHub 仓库。目标地址未确认前，本地备份提交与标签可以审阅，但不能视为 GitHub 上传已完成。
+2026-10-09，老版本已上传到用户指定的仓库 [maodougansidui/TeamToDo](https://github.com/maodougansidui/TeamToDo)。通过 `git ls-remote` 核对，远程 `refs/heads/main` 和 `refs/tags/baseline-before-live-refresh` 均指向 `065df3bfa2483a9b10afffbdc61b5e63f1deb9a6`，与本地原始提交一致。上传后工作区数据库 SHA-256 仍与上述值相同。实时刷新修复提交 `9b81dc2` 保留在本地，未推送到远程 `main`。

@@ -43,4 +43,4 @@ Windows 使用应用目录内的 `启动服务.bat`，默认优先启动 EXE；�
 
 ## 老版本留存
 
-修复前版本已保存在 Git 提交 `065df3b`，标签 `baseline-before-live-refresh`，包括原源码、页面、脚本和 EXE；不包含业务数据库、真实配置或日志。GitHub 上传需要明确目标仓库地址。
+修复前版本已保存在 Git 提交 `065df3b`，标签 `baseline-before-live-refresh`，包括原源码、页面、脚本和 EXE；不包含业务数据库、真实配置或日志。2026-10-09 已上传到 [GitHub 老版本备份](https://github.com/maodougansidui/TeamToDo/tree/baseline-before-live-refresh)，远程 `main` 和该标签均指向原始提交。实时刷新修复保留在本地，未推送到远程 `main`。
