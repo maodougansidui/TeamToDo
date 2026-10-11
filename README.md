@@ -1,6 +1,19 @@
-# TeamToDo
+# TeamToDo V1.2
 
 内网任务协同管理平台。当前应用位于 `TeamToDo V1.1/`，后端声明版本为 3.4.0。
+
+## V1.2（2026-10-11）
+
+Git 版本标签为 `V1.2`；为兼容现有部署，应用目录名和原 EXE 的后端版本号保持不变。
+
+- 自动同步其他客户端的任务和反馈更新，保留编辑草稿及当前筛选。
+- 修复“我的任务 → 工作台”残留筛选；显式点击工作台恢复全部可见任务。
+- 修复顶部统计显示 `[object Object]`，并避免逾期、即将到期数量被明细的 20 条上限截断。
+- 包含源码与原 EXE 的独立数据库回归测试，以及诊断报告。
+
+已知未修复问题：岗位权限保存失效、任务删除权限缺失、停用或降权后的旧会话仍有效、当前用户权限不自动同步、子任务进度接口报错。尤其权限与会话问题存在安全风险，详见 [权限测试报告](docs/PERMISSIONS_REVIEW.md)。这些问题不属于本次已修复内容。
+
+更新时同步 EXE 同目录的 `static/index.html`，浏览器按 `Ctrl+F5` 强制刷新，无需重新打包 EXE。操作说明与验证见 [工作台修复记录](docs/WORKBENCH_NAVIGATION_FIX.md)。
 
 每位使用者在自己的电脑启动本机 HTTP 服务，通过浏览器访问；各本机服务读取同一个共享目录中的 SQLite 数据库，实现多人协作。
 
@@ -43,4 +56,4 @@ Windows 使用应用目录内的 `启动服务.bat`，默认优先启动 EXE；�
 
 ## 老版本留存
 
-修复前版本已保存在 Git 提交 `065df3b`，标签 `baseline-before-live-refresh`，包括原源码、页面、脚本和 EXE；不包含业务数据库、真实配置或日志。2026-10-09 已上传到 [GitHub 老版本备份](https://github.com/maodougansidui/TeamToDo/tree/baseline-before-live-refresh)，远程 `main` 和该标签均指向原始提交。实时刷新修复保留在本地，未推送到远程 `main`。
+修复前版本已保存在 Git 提交 `065df3b`，标签 `baseline-before-live-refresh`，包括原源码、页面、脚本和 EXE；不包含业务数据库、真实配置或日志。2026-10-09 已上传到 [GitHub 老版本备份](https://github.com/maodougansidui/TeamToDo/tree/baseline-before-live-refresh)。后续上传 V1.2 不移动该备份标签。

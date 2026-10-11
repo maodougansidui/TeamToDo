@@ -110,7 +110,11 @@ fixture.stderr.on('data', chunk => { log += chunk; });
   console.log('PASS: polling preserves the active task search');
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); });
   let reads = 0;
-  const countReads = req => { if (req.url().includes('/api/tasks?')) reads++; };
+  const countReads = req => {
+    const url = new URL(req.url());
+    // Count list refreshes, not the summary's one-row count queries.
+    if (url.pathname === '/api/tasks' && url.search && url.searchParams.get('limit') !== '1') reads++;
+  };
   page.on('request', countReads);
   await page.evaluate(() => refreshLiveData());
   await page.waitForTimeout(3500);

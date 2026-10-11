@@ -703,7 +703,7 @@ html, body { height:100%; font-family: -apple-system, "PingFang SC", "Microsoft 
     <button class="side-newbtn" data-perm="task.create" onclick="openTaskModal()"><span>+ 新建任务</span></button>
 
     <div class="side-group">工作区</div>
-    <div class="side-item active" data-tab="tasks" onclick="switchTab('tasks')"><span class="side-icon">▦</span><span class="side-label">工作台</span></div>
+    <div class="side-item active" data-tab="tasks" onclick="setFilterPreset('all')"><span class="side-icon">▦</span><span class="side-label">工作台</span></div>
     <div class="side-item" data-preset="mine" onclick="setFilterPreset('mine')"><span class="side-icon">☰</span><span class="side-label">我的任务</span></div>
     <div class="side-item" data-preset="upcoming" onclick="setFilterPreset('upcoming')"><span class="side-icon">◷</span><span class="side-label">即将到期</span></div>
     <div class="side-item" data-preset="overdue" onclick="setFilterPreset('overdue')"><span class="side-icon">▲</span><span class="side-label">已逾期</span><span class="side-badge" id="side-badge-overdue">0</span></div>
@@ -1705,6 +1705,15 @@ async function loadSummary() {
     if (!r.ok) return;
     const s = r.summary || {};
 
+    // 部分后端将这两个字段返回为最多 20 条明细，不能当作总数显示。
+    const countDue = async key => {
+      if (!Array.isArray(s[key])) return s[key] || 0;
+      const result = await api("/tasks?" + key + "=1&limit=1");
+      if (!result.ok) throw new Error(result.error);
+      return result.total;
+    };
+    const [overdueCount, upcomingCount] = await Promise.all([countDue("overdue"), countDue("upcoming")]);
+
     function el(id) { return document.getElementById(id); }
     function num(id, v) { const e = el(id); if (e) e.textContent = (v !== undefined && v !== null) ? v : 0; }
 
@@ -1719,8 +1728,8 @@ async function loadSummary() {
       num("sum-todo",     todo);
       num("sum-doing",    doing);
       num("sum-done",     done);
-      num("sum-overdue",  s.overdue);
-      num("sum-upcoming", s.upcoming);
+      num("sum-overdue",  overdueCount);
+      num("sum-upcoming", upcomingCount);
       // v3.2.1：完成率同步到汇总区
       const rate = total ? Math.round(done / total * 100) + "%" : "-";
       num("sum-rate",     rate);
@@ -1737,8 +1746,8 @@ async function loadSummary() {
       num("sum-todo",     todo);
       num("sum-doing",    doing);
       num("sum-done",     done);
-      num("sum-overdue",  (s.overdue  || []).length);
-      num("sum-upcoming", (s.upcoming || []).length);
+      num("sum-overdue",  overdueCount);
+      num("sum-upcoming", upcomingCount);
       const rate = total ? Math.round(done / total * 100) + "%" : "-";
       num("sum-rate",     rate);
       num("sum-rate-todo",  todo);
@@ -3305,23 +3314,20 @@ function syncFpUI() {
 }
 
 function setFilterPreset(kind) {
+  ["flt-status", "flt-priority", "flt-type", "flt-dept", "flt-mine", "flt-search"].forEach(id => {
+    document.getElementById(id).value = "";
+  });
   resetAdvFilter(false);
-  if (kind === "mine")     advFilter.quick = [];
   if (kind === "overdue")  advFilter.quick = ["overdue"];
   if (kind === "upcoming") advFilter.quick = ["upcoming"];
   if (kind === "pool")     advFilter.quick = ["pool"];
-  document.querySelectorAll(".side-item").forEach(el => {
-    el.classList.remove("active");
-  });
+  if (kind === "mine") document.getElementById("flt-mine").value = "assigned";
+  syncFpUI();
+  renderFilterChips();
   switchTab("tasks");
   document.querySelectorAll(".side-item").forEach(el => {
-    if (el.dataset.preset === kind) el.classList.add("active");
+    el.classList.toggle("active", kind === "all" ? el.dataset.tab === "tasks" : el.dataset.preset === kind);
   });
-  if (kind === "mine") {
-    const sel = document.getElementById("flt-mine");
-    if (sel) sel.value = "assigned";
-  }
-  applyAdvFilter();
 }
 
 function resetAdvFilter(reload) {
